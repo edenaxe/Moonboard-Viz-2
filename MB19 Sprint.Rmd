@@ -18,11 +18,11 @@ library(gtExtras)
 
 
 # Read in data
-MB19 <- read_excel("C:/Users/axelrade/Desktop/mb19/Moonboard 2019.xlsx", sheet = "Tracker") %>%
+MB19 <- read_excel("Data/Moonboard 2019.xlsx", sheet = "Tracker") %>%
   select(1:9) %>%
   mutate(Date = as.Date(Date, format = "%Y-%m-%d"))
 
-MB19_Ref <- read_excel("C:/Users/axelrade/Desktop/mb19/Moonboard 2019.xlsx", sheet = "Ref Table")
+MB19_Ref <- read_excel("Data/Moonboard 2019.xlsx", sheet = "Ref Table")
 
 
 # Generate a "by session" summary data frame
