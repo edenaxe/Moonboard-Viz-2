@@ -1,0 +1,305 @@
+---
+title: "MB19 Sprint"
+author: "Eden Axelrad"
+date: '2022-12-22'
+output: 
+  flexdashboard::flex_dashboard:
+    storyboard: true
+---
+
+```{r setup, include=FALSE}
+
+# Load required libraries
+library(readxl)
+library(tidyverse)
+library(lubridate)
+library(gt)
+library(gtExtras)
+
+
+# Read in data
+MB19 <- read_excel("C:/Users/axelrade/Desktop/mb19/Moonboard 2019.xlsx", sheet = "Tracker") %>%
+  select(1:9) %>%
+  mutate(Date = as.Date(Date, format = "%Y-%m-%d"))
+
+MB19_Ref <- read_excel("C:/Users/axelrade/Desktop/mb19/Moonboard 2019.xlsx", sheet = "Ref Table")
+
+
+# Generate a "by session" summary data frame
+By_Session <- MB19 %>%
+  group_by(Date) %>%
+  summarize(`Benchmarks Completed` = n(),
+            `Average V Grade` = round(mean(`V Grade`), digits = 1),
+            `Minimum V Grade` = min(`V Grade`),
+            `Maximum V Grade` = max(`V Grade`),
+            `Total V Points` = sum(`V Grade`),
+            `Session Points` = sum(Points),
+            `Grade Distribution` = list(`V Grade`), .groups = "drop") 
+
+
+# Generate a by Week data frame
+By_Week <- MB19 %>%
+  mutate(Month = month(Date, label = TRUE),
+         Week = week(Date),
+         Day = wday(Date, label = TRUE, abbr = TRUE)) %>%
+  group_by(Week) %>%
+  summarize(`Benchmarks Completed` = n(),
+            `Average V Grade` = round(mean(`V Grade`), digits = 1),
+            `Minimum V Grade` = min(`V Grade`),
+            `Maximum V Grade` = max(`V Grade`),
+            `Total V Points` = sum(`V Grade`),
+            `Moonboard Points` = sum(Points),
+            `Grade Distribution` = list(`V Grade`), .groups = "drop") %>%
+  mutate(`Grade Range` = paste0("V", `Minimum V Grade`, " - ", "V", `Maximum V Grade`),
+         `Cumulative Benchmarks` = cumsum(`Benchmarks Completed`),
+         Week = as.Date(paste(2022, Week, 1, sep = "-"), "%Y-%U-%u")) %>%
+  select(Week, `Benchmarks Completed`, `Cumulative Benchmarks`, `Average V Grade`, 
+         `Total V Points`, `Grade Range`, `Grade Distribution`, `Moonboard Points`)
+
+
+# Generate a summary table by grades
+By_Grade <- left_join(
+  x = MB19_Ref %>% select(Grade, Benchmarks),
+  y = MB19 %>%
+    mutate(Attempts = case_when(
+      Attempts == 1 ~ "Flashed",
+      Attempts == 2 ~ "2nd Try",
+      Attempts == 3 ~ "3rd Try",
+      Attempts > 3 ~ ">3 Tries")) %>%
+    group_by(Grade, Attempts) %>%
+    summarize(Completed = n(), .groups = "drop") %>%
+    pivot_wider(names_from = Attempts, 
+                values_from = Completed,
+                values_fill = 0) %>%
+    mutate(`Total Completed` = rowSums(across(Flashed:`>3 Tries`))),
+  by = "Grade"
+) %>%
+  mutate_if(is.numeric, coalesce, 0) %>%
+  mutate(Remaining = Benchmarks - `Total Completed`,
+         `Percent Completed` = `Total Completed`/Benchmarks)
+
+```
+
+### Summary Table by Session
+
+```{r}
+
+# By session gt() table
+By_Session %>%
+  mutate(`Grade Range` = paste0("V", `Minimum V Grade`, " - ", "V", `Maximum V Grade`),
+         `Cumulative Benchmarks` = cumsum(`Benchmarks Completed`)) %>%
+  select(Date, `Benchmarks Completed`, `Cumulative Benchmarks`, `Average V Grade`, 
+         `Total V Points`, `Grade Range`, `Grade Distribution`) %>%
+  gt() %>%
+  data_color(
+    columns = c(`Average V Grade`),
+    colors = scales::col_numeric(
+      palette = c("#eb633d", "#ebae34", "#b6eb60", "#0bb83c"),
+      domain = c(min(By_Session$`Average V Grade`), 
+                 max(By_Session$`Average V Grade`))),
+    alpha = 0.7) %>%
+  data_color(
+    columns = c(`Total V Points`),
+    colors = scales::col_numeric(
+      palette = c("#eb633d", "#ebae34", "#b6eb60", "#0bb83c"),
+      domain = c(min(By_Session$`Total V Points`), 
+                 max(By_Session$`Total V Points`))),
+    alpha = 0.7) %>%
+  gt_plt_dist(`Grade Distribution`, 
+              line_color = "#89a189", 
+              fill_color = "#cce3d3", 
+              type = "density",
+              fig_dim = c(5, 25)) %>%
+  cols_align(
+    align = "center",
+    columns = c(2:7)) %>%
+  cols_width(
+    columns = 1 ~ px(125),
+    columns = 2:6 ~ px(95),
+    columns = 7 ~ px(110)) %>%
+  tab_style(
+    style = list(cell_text(color = "#2b2b2b")),
+    locations = cells_body(columns = 2:7)) %>%
+  tab_header(
+    title = "Moonboard 2019 Sessions",
+    subtitle = paste0(nrow(MB19), "/341 Benchmarks")) %>%
+  gt_theme_538() %>%
+  opt_align_table_header(align = "center")
+
+```
+
+***
+
+https://rstudio.github.io/leaflet/
+
+- Interactive panning/zooming
+
+- Compose maps using arbitrary combinations of map tiles, markers, polygons, lines, popups, and GeoJSON.
+
+- Create maps right from the R console or RStudio
+
+- Embed maps in knitr/R Markdown documents and Shiny apps
+
+- Easily render Spatial objects from the sp package, or data frames with latitude/longitude columns
+
+- Use map bounds and mouse events to drive Shiny logic
+
+
+### Summary Table by Week
+
+```{r}
+
+# By Week gt() Table
+By_Week %>%
+  select(-`Moonboard Points`) %>%
+  gt() %>%
+  data_color(
+    columns = c(`Average V Grade`),
+    colors = scales::col_numeric(
+      palette = c("#eb633d", "#ebae34", "#b6eb60", "#0bb83c"),
+      domain = c(min(By_Week$`Average V Grade`), 
+                 max(By_Week$`Average V Grade`))),
+    alpha = 0.7) %>%
+  data_color(
+    columns = c(`Total V Points`),
+    colors = scales::col_numeric(
+      palette = c("#eb633d", "#ebae34", "#b6eb60", "#0bb83c"),
+      domain = c(min(By_Week$`Total V Points`), 
+                 max(By_Week$`Total V Points`))),
+    alpha = 0.7) %>%
+  gt_plt_dist(`Grade Distribution`, 
+              line_color = "#89a189", 
+              fill_color = "#cce3d3", 
+              type = "density",
+              fig_dim = c(5, 25)) %>%
+  cols_align(align = "center", columns = c(2:7)) %>%
+  cols_align(align = "left", columns = c(1)) %>%
+  cols_width(
+    columns = 1 ~ px(130),
+    columns = 2:6 ~ px(100),
+    columns = 7 ~ px(110)) %>%
+  cols_label(Week = "Week of") %>% 
+  tab_style(
+    style = list(cell_text(color = "#2b2b2b")),
+    locations = cells_body(columns = 2:7)) %>%
+  tab_header(
+    title = "Moonboard 2019 Sessions",
+    subtitle = paste0(nrow(MB19), "/341 Benchmarks")) %>%
+  gt_theme_538() %>%
+  opt_align_table_header(align = "center")
+
+```
+
+***
+
+Some text about this graph 
+
+### By Grade Charts
+
+```{r}
+
+By_Grade %>%
+  select(Grade, Flashed, `2nd Try`, `3rd Try`, `>3 Tries`) %>%
+  pivot_longer(cols = c(Flashed, `2nd Try`, `3rd Try`, `>3 Tries`), 
+               names_to = "Status", 
+               values_to = "Count") %>%
+  ggplot(aes(x = Grade, y = Count, fill = Status)) +
+  geom_col()
+
+
+
+By_Grade %>%
+  mutate(Flashed = Flashed/Benchmarks, 
+         `2nd Try` = `2nd Try`/Benchmarks, 
+         `3rd Try` = `3rd Try`/Benchmarks, 
+         `>3 Tries` = `>3 Tries`/Benchmarks,
+         Remaining = Remaining/Benchmarks) %>%
+  pivot_longer(cols = c(Flashed, `2nd Try`, `3rd Try`, `>3 Tries`, Remaining), 
+               names_to = "Status", 
+               values_to = "Completed") %>%
+  mutate(Status = factor(Status, 
+                         #levels = c("Flashed", "2nd Try", "3rd Try", ">3 Tries", "Remaining"))) %>%
+                         levels = c("Remaining", ">3 Tries", "3rd Try", "2nd Try", "Flashed"))) %>%
+  ggplot(aes(x = Grade, y = Completed, fill = Status)) +
+  scale_fill_manual(values = c("gray", "#0b7a75", "#22816b", "#388761", "#5e9f39")) +
+  geom_col() +
+  scale_y_continuous(labels = scales::percent) +
+  coord_flip() +
+  hrbrthemes::theme_ipsum() +
+  labs(title = "Percent Completed by Grade")
+
+
+```
+
+
+
+### Bar Charts
+
+```{r}
+
+By_Week %>%
+  ggplot(aes(x = Week)) +
+  geom_col(aes(y = `Moonboard Points`, fill = `Average V Grade`)) +
+  geom_line(aes(y = `Cumulative Benchmarks`*100), size = 2, color = "#4e524f") +
+  scale_fill_gradient2(low = "#f72e2e", mid = "#dbd63b", midpoint = 5,  high = "#27ab22") +
+  scale_y_continuous(name = "Moonboard Points",
+                     sec.axis = sec_axis(~./100, name = "Benchmarks Completed")) +
+  theme_classic() +
+  labs(title = "Moonboard Points by Session",
+       subtitle = "With Cumulative Benchmarks Completed",
+       x = "") +
+  theme(legend.position = "bottom",
+        legend.title = element_text(color = "#0a3636", face = "plain"),
+        title = element_text(color = "#0a3636", face = "bold"),
+        plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        panel.background = element_rect(fill = "#ffffff", color = "#ffffff"),
+        axis.text = element_text(face = "bold", color = "#0a3636"),
+        axis.title.y.left = element_text(margin = margin(t = 0, r = 12, b = 0, l = 0)),
+        axis.title.y.right = element_text(margin = margin(t = 0, r = 0, b = 0, l = 12))) +
+  guides(fill = guide_colourbar(barheight = 0.8, title.vjust = 0.9))
+
+```
+
+
+### Intensity vs Volume Quadrant Chart
+
+```{r}
+
+# Comparison to regular training... a 10-climb pyramid up to max flash grade
+Pyramid_10 <- c(7, 7, 7, 7, 8, 8, 8, 9, 9, 10)
+
+# Intensity versus volume quadrant chart
+By_Session %>%
+  ggplot(aes(x = `Average V Grade`, y = `Total V Points`)) +
+  geom_point(alpha = 0.9, size = 2.5) +
+  geom_point(aes(x = mean(Pyramid_10), y = sum(Pyramid_10)), size = 3, color = "red") +
+  geom_vline(xintercept = mean(By_Session$`Average V Grade`),
+             color = "#4d4e4f", linetype = "dashed", size = 0.5) +
+  geom_hline(yintercept = mean(By_Session$`Total V Points`),
+             color = "#4d4e4f", linetype = "dashed", size = 0.5) +
+  scale_x_continuous(limits = c(3, 10), 
+                     breaks = c(3:10),
+                     labels = c(paste("V", 3:10))) +
+  theme_classic() +
+  labs(title = "Quadrant Chart", 
+       subtitle = "Intensity versus Volume",
+       x = "Intensity (Average V Grade)", 
+       y = "Volume (Total V Points)") +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5),
+        axis.line = element_line(colour = "#4d4e4f", size = 1),
+        axis.text = element_text(face = 'bold'),
+        panel.background = element_rect(fill = "#f5f4f0"),
+        panel.border = element_rect(color = "#4d4e4f", fill = NA, size = 1)) +
+  coord_equal(ratio = 1/(max(By_Session$`Total V Points`)/7))
+
+```
+
+***
+ 
+With comparison to a "typical" MB session where I did pyramids up to max flash grade... 4x V7, 3x V8, 2x V9, and 1x V10... shown in red. 
+
+Quadrant 1 (top left )
